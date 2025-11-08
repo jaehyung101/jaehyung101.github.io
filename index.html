@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PeerJS P2P 채팅</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS CDN -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        /* Inter 폰트 적용 (Tailwind 기본) */
+        @import url('https://rsms.me/inter/inter.css');
+        html { font-family: 'Inter', sans-serif; }
+
+        /* 커스텀 스크롤바 */
+        #chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+        #chat-messages::-webkit-scrollbar-track {
+            background: #2d3748; /* gray-800 */
+            border-radius: 10px;
+        }
+        #chat-messages::-webkit-scrollbar-thumb {
+            background: #4a5568; /* gray-600 */
+            border-radius: 10px;
+        }
+        #chat-messages::-webkit-scrollbar-thumb:hover {
+            background: #718096; /* gray-500 */
+        }
+
+        /* 뷰 전환을 부드럽게 (선택 사항) */
+        .view {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+        }
+        .view.hidden {
+            opacity: 0;
+            transform: scale(0.95);
+            pointer-events: none;
+            position: absolute; /* 사라질 때 레이아웃을 무너뜨리지 않도록 */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center font-sans p-4">
+
+    <div class="w-full max-w-md bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8 relative overflow-hidden">
+
+        <!-- 1. 홈 뷰: 시작 화면 -->
+        <div id="home-view" class="view w-full">
+            <h1 class="text-3xl font-bold text-center mb-2 text-indigo-400">P2P 채팅</h1>
+            <p class="text-center text-gray-400 mb-8">Powered by PeerJS & WebRTC</p>
+
+            <div class="space-y-4">
+                <button id="create-room-button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-lg text-lg">
+                    채팅방 만들기 (호스트)
+                </button>
+                <button id="join-room-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-lg text-lg">
+                    채팅방 참여하기 (참여자)
+                </button>
+            </div>
+            <!-- 상태 메시지 -->
+            <p id="home-status" class="text-center text-yellow-400 h-6 mt-6 text-sm"></p>
+        </div>
+
+        <!-- 2. 호스트 뷰: ID 발급 및 대기 -->
+        <div id="host-view" class="view w-full hidden">
+            <h2 class="text-2xl font-bold text-center mb-4 text-indigo-300">채팅방 만들기</h2>
+            <p class="text-center text-gray-400 mb-6">아래 ID를 참여자에게 공유하세요.</p>
+
+            <div class="bg-gray-700 p-4 rounded-lg text-center mb-4">
+                <label for="my-peer-id" class="block text-sm font-medium text-gray-300 mb-2">내 Peer ID (공유용)</label>
+                <div id="peer-id-loading" class="flex items-center justify-center text-gray-400">
+                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>ID 발급 중...</span>
+                </div>
+                <input
+                    type="text"
+                    id="my-peer-id"
+                    readonly
+                    class="hidden w-full bg-gray-900 text-white text-center font-mono text-lg rounded-md p-2 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="ID를 불러오는 중..."
+                >
+                <button id="copy-id-button" class="hidden mt-2 w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+                    ID 복사하기
+                </button>
+            </div>
+            <p id="host-status" class="text-center text-green-400 h-6 mt-4 text-sm">참여자의 연결을 기다리는 중...</p>
+            <button id="host-cancel-button" class="mt-4 w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+                취소하고 돌아가기
+            </button>
+        </div>
+
+        <!-- 3. 참여자 뷰: ID 입력 -->
+        <div id="joiner-view" class="view w-full hidden">
+            <h2 class="text-2xl font-bold text-center mb-4 text-green-300">채팅방 참여하기</h2>
+            <p class="text-center text-gray-400 mb-6">호스트에게 받은 Peer ID를 입력하세요.</p>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="host-peer-id" class="block text-sm font-medium text-gray-300 mb-2">연결할 호스트 Peer ID</label>
+                    <input
+                        type="text"
+                        id="host-peer-id"
+                        class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="상대방의 ID를 입력하세요"
+                    >
+                </div>
+                <button id="connect-button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-lg">
+                    연결하기
+                </button>
+            </div>
+
+            <p id="joiner-status" class="text-center text-red-400 h-6 mt-4 text-sm"></p>
+            <button id="joiner-cancel-button" class="mt-4 w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+                취소하고 돌아가기
+            </button>
+        </div>
+
+
+        <!-- 4. 채팅 뷰: 대화 -->
+        <div id="chat-view" class="view w-full hidden">
+            <!-- 채팅 헤더 -->
+            <div class="flex justify-between items-center mb-4">
+                <p class="text-sm text-gray-400 truncate">
+                    연결됨: <span id="connected-peer-id" class="font-bold text-indigo-300"></span>
+                </p>
+                <button id="disconnect-button" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 text-sm flex-shrink-0">
+                    연결 끊기
+                </button>
+            </div>
+
+            <!-- 메시지 표시 영역 -->
+            <div id="chat-messages" class="h-80 bg-gray-900 rounded-lg p-4 overflow-y-auto flex flex-col space-y-3 mb-4 border border-gray-700">
+                <!-- 메시지 버블이 여기에 추가됩니다 -->
+            </div>
+
+            <!-- 메시지 입력 영역 -->
+            <form id="send-form" class="flex space-x-2">
+                <input
+                    type="text"
+                    id="message-input"
+                    class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="메시지 입력..."
+                    autocomplete="off"
+                >
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-5 rounded-lg transition duration-200">
+                    전송
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- 뷰(View) DOM 요소 ---
+        const homeView = document.getElementById('home-view');
+        const hostView = document.getElementById('host-view');
+        const joinerView = document.getElementById('joiner-view');
+        const chatView = document.getElementById('chat-view');
+        const allViews = [homeView, hostView, joinerView, chatView];
+
+        // --- 홈 뷰 요소 ---
+        const createRoomButton = document.getElementById('create-room-button');
+        const joinRoomButton = document.getElementById('join-room-button');
+        const homeStatus = document.getElementById('home-status');
+
+        // --- 호스트 뷰 요소 ---
+        const myPeerIdDisplay = document.getElementById('my-peer-id');
+        const peerIdLoading = document.getElementById('peer-id-loading');
+        const copyIdButton = document.getElementById('copy-id-button');
+        const hostStatus = document.getElementById('host-status');
+        const hostCancelButton = document.getElementById('host-cancel-button');
+
+        // --- 참여자 뷰 요소 ---
+        const hostPeerIdInput = document.getElementById('host-peer-id');
+        const connectButton = document.getElementById('connect-button');
+        const joinerStatus = document.getElementById('joiner-status');
+        const joinerCancelButton = document.getElementById('joiner-cancel-button');
+
+        // --- 채팅 뷰 요소 ---
+        const connectedPeerIdDisplay = document.getElementById('connected-peer-id');
+        const disconnectButton = document.getElementById('disconnect-button');
+        const chatMessages = document.getElementById('chat-messages');
+        const sendForm = document.getElementById('send-form');
+        const messageInput = document.getElementById('message-input');
+
+        // --- PeerJS 상태 변수 ---
+        let peer = null;
+        let dataConnection = null;
+
+        /**
+         * 특정 뷰만 표시하고 나머지는 숨김
+         * @param {HTMLElement} viewToShow - 표시할 뷰
+         */
+        function showView(viewToShow) {
+            allViews.forEach(view => {
+                if (view === viewToShow) {
+                    view.classList.remove('hidden');
+                    // 애니메이션을 위해 강제로 reflow
+                    void view.offsetWidth;
+                    view.classList.remove('opacity-0', 'scale-95', 'absolute');
+                } else {
+                    view.classList.add('opacity-0', 'scale-95', 'absolute');
+                    // 애니메이션 후 실제로 숨김
+                    setTimeout(() => view.classList.add('hidden'), 300);
+                }
+            });
+        }
+
+        /**
+         * PeerJS 객체 초기화 및 이벤트 핸들러 설정
+         * @param {'host' | 'joiner'} role - 사용자 역할
+         */
+        function initializePeer(role) {
+            // 기존 연결 정리
+            cleanupPeer();
+
+            // 새 Peer 객체 생성
+            peer = new Peer(undefined, {
+                // host: 'localhost', port: 9000, path: '/myapp' // 필요시 커스텀 서버 설정
+            });
+
+            // 1. Peer 서버 연결 성공 (ID 발급 완료)
+            peer.on('open', (id) => {
+                console.log('내 Peer ID:', id);
+                if (role === 'host') {
+                    peerIdLoading.classList.add('hidden');
+                    myPeerIdDisplay.value = id;
+                    myPeerIdDisplay.classList.remove('hidden');
+                    copyIdButton.classList.remove('hidden');
+                    hostStatus.textContent = "참여자의 연결을 기다리는 중...";
+                    hostStatus.classList.add('text-green-400');
+                } else {
+                    joinerStatus.textContent = "Peer 서버 준비 완료. 호스트 ID를 입력하세요.";
+                    joinerStatus.classList.remove('text-red-400');
+                    joinerStatus.classList.add('text-green-400');
+                }
+            });
+
+            // 2. (호스트) 참여자로부터 연결 요청 받음
+            if (role === 'host') {
+                peer.on('connection', (conn) => {
+                    console.log('다른 피어로부터 연결 요청 받음:', conn.peer);
+                    if (dataConnection) {
+                        console.warn('이미 채팅 중입니다. 새 연결을 거부합니다.');
+                        conn.close();
+                        return;
+                    }
+                    setupConnection(conn);
+                });
+            }
+
+            // 3. 공통 에러 핸들링
+            peer.on('error', (err) => {
+                console.error('PeerJS 에러:', err);
+                let message = '오류가 발생했습니다.';
+                if (err.type === 'peer-unavailable') {
+                    message = '해당 ID를 가진 피어를 찾을 수 없습니다.';
+                } else if (err.type === 'network') {
+                    message = '네트워크 오류. PeerJS 서버에 연결할 수 없습니다.';
+                } else if (err.type === 'unavailable-id') {
+                    message = 'ID가 이미 사용 중입니다. 잠시 후 다시 시도하세요.';
+                }
+
+                // 현재 활성화된 뷰에 따라 에러 메시지 표시
+                if (role === 'host') {
+                    hostStatus.textContent = message;
+                    hostStatus.classList.add('text-red-400');
+                } else {
+                    joinerStatus.textContent = message;
+                    joinerStatus.classList.add('text-red-400');
+                }
+            });
+        }
+
+        /**
+         * 데이터 커넥션 설정 (공통 로직)
+         * @param {Peer.DataConnection} conn - PeerJS 데이터 커넥션 객체
+         */
+        function setupConnection(conn) {
+            dataConnection = conn;
+
+            conn.on('open', () => {
+                console.log('데이터 연결 성공:', conn.peer);
+                showChatView(conn.peer);
+            });
+
+            conn.on('data', (data) => {
+                console.log('데이터 수신:', data);
+                displayMessage('Peer', data);
+            });
+
+            conn.on('close', () => {
+                console.log('연결 끊어짐');
+                showHomeView('상대방과 연결이 끊어졌습니다.');
+            });
+
+            conn.on('error', (err) => {
+                console.error('데이터 연결 에러:', err);
+                showHomeView('데이터 연결에 오류가 발생했습니다.');
+            });
+        }
+
+        /**
+         * 채팅 메시지를 화면에 표시
+         * @param {'You' | 'Peer' | 'System'} sender
+         * @param {string} message
+         */
+        function displayMessage(sender, message) {
+            const messageElement = document.createElement('div');
+
+            if (sender === 'System') {
+                messageElement.classList.add('text-center', 'text-sm', 'text-gray-500', 'italic', 'my-2');
+                messageElement.textContent = message;
+            } else {
+                messageElement.classList.add('max-w-xs', 'md:max-w-sm', 'p-3', 'rounded-lg', 'break-words');
+                if (sender === 'You') {
+                    messageElement.classList.add('bg-indigo-600', 'self-end', 'rounded-br-none');
+                } else {
+                    messageElement.classList.add('bg-gray-700', 'self-start', 'rounded-bl-none');
+                }
+                const textElement = document.createElement('p');
+                textElement.classList.add('text-sm');
+                textElement.textContent = message;
+                messageElement.appendChild(textElement);
+            }
+
+            chatMessages.appendChild(messageElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        /**
+         * 채팅 뷰로 전환
+         * @param {string} peerId - 연결된 상대방 Peer ID
+         */
+        function showChatView(peerId) {
+            showView(chatView);
+            connectedPeerIdDisplay.textContent = peerId;
+            hostPeerIdInput.value = ''; // 참여자 뷰 입력 필드 초기화
+            joinerStatus.textContent = ''; // 참여자 뷰 상태 메시지 초기화
+            chatMessages.innerHTML = ''; // 채팅 기록 초기화
+
+            displayMessage('System', `${peerId}님과 연결되었습니다.`);
+        }
+
+        /**
+         * 홈 뷰로 전환 (모든 연결 종료)
+         * @param {string} [message] - 홈 뷰에 표시할 상태 메시지
+         */
+        function showHomeView(message = '') {
+            cleanupPeer();
+            showView(homeView);
+            homeStatus.textContent = message;
+
+            // 호스트 뷰 UI 초기화
+            myPeerIdDisplay.value = '';
+            myPeerIdDisplay.classList.add('hidden');
+            copyIdButton.classList.add('hidden');
+            peerIdLoading.classList.remove('hidden');
+            hostStatus.textContent = '';
+        }
+
+        /**
+         * Peer 및 DataConnection 정리
+         */
+        function cleanupPeer() {
+            if (dataConnection) {
+                dataConnection.close();
+                dataConnection = null;
+            }
+            if (peer) {
+                peer.destroy();
+                peer = null;
+            }
+        }
+
+        // --- 이벤트 리스너 ---
+
+        // (홈) 채팅방 만들기 버튼
+        createRoomButton.addEventListener('click', () => {
+            showView(hostView);
+            initializePeer('host');
+        });
+
+        // (홈) 채팅방 참여하기 버튼
+        joinRoomButton.addEventListener('click', () => {
+            showView(joinerView);
+            initializePeer('joiner');
+        });
+
+        // (호스트) 취소 버튼
+        hostCancelButton.addEventListener('click', () => {
+            showHomeView('호스트 생성을 취소했습니다.');
+        });
+
+        // (참여자) 취소 버튼
+        joinerCancelButton.addEventListener('click', () => {
+            showHomeView('참여를 취소했습니다.');
+        });
+
+        // (호스트) ID 복사 버튼
+        copyIdButton.addEventListener('click', () => {
+            const idToCopy = myPeerIdDisplay.value;
+            if (!idToCopy) return;
+
+            try {
+                const tempInput = document.createElement('input');
+                tempInput.style.position = 'absolute';
+                tempInput.style.left = '-9999px';
+                tempInput.value = idToCopy;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempInput);
+
+                const originalText = copyIdButton.textContent;
+                copyIdButton.textContent = '복사 완료!';
+                copyIdButton.classList.add('bg-green-600');
+                setTimeout(() => {
+                    copyIdButton.textContent = originalText;
+                    copyIdButton.classList.remove('bg-green-600');
+                }, 1500);
+
+            } catch (err) {
+                console.error('ID 복사 실패:', err);
+                hostStatus.textContent = 'ID 복사에 실패했습니다.';
+                hostStatus.classList.add('text-red-400');
+            }
+        });
+
+        // (참여자) 연결하기 버튼
+        connectButton.addEventListener('click', () => {
+            const hostId = hostPeerIdInput.value.trim();
+            if (!hostId) {
+                joinerStatus.textContent = '호스트 ID를 입력해주세요.';
+                joinerStatus.classList.add('text-red-400');
+                return;
+            }
+            if (peer && hostId === peer.id) {
+                joinerStatus.textContent = '자신의 ID에는 연결할 수 없습니다.';
+                joinerStatus.classList.add('text-red-400');
+                return;
+            }
+
+            if (dataConnection) {
+                console.warn('이미 연결 시도 중이거나 연결된 상태입니다.');
+                return;
+            }
+
+            console.log(`${hostId}에 연결 시도...`);
+            joinerStatus.textContent = '연결 중...';
+            joinerStatus.classList.remove('text-red-400', 'text-green-400');
+
+            if (!peer) {
+                joinerStatus.textContent = 'Peer가 초기화되지 않았습니다. 잠시 후 다시 시도하세요.';
+                joinerStatus.classList.add('text-red-400');
+                return;
+            }
+
+            const conn = peer.connect(hostId);
+            setupConnection(conn);
+        });
+
+        // (채팅) 메시지 전송 폼
+        sendForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = messageInput.value.trim();
+
+            if (message && dataConnection && dataConnection.open) {
+                dataConnection.send(message);
+                displayMessage('You', message);
+                messageInput.value = '';
+            }
+        });
+
+        // (채팅) 연결 끊기 버튼
+        disconnectButton.addEventListener('click', () => {
+            showHomeView('연결을 종료했습니다.');
+        });
+
+        // 페이지 로드 시 홈 뷰 표시
+        document.addEventListener('DOMContentLoaded', () => {
+            showView(homeView);
+        });
+
+    </script>
+</body>
+</html>
