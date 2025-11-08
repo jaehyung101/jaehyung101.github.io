@@ -14,7 +14,7 @@
         /* Inter 폰트 적용 (Tailwind 기본) */
         @import url('https://rsms.me/inter/inter.css');
         html { font-family: 'Inter', sans-serif; }
-        
+
         /* 커스텀 스크롤바 */
         #chat-messages::-webkit-scrollbar {
             width: 6px;
@@ -41,7 +41,7 @@
             pointer-events: none;
             position: absolute; /* 사라질 때 레이아웃을 무너뜨리지 않도록 */
         }
-        
+
         /* 비디오 태그가 오디오만 있을 경우 검은색 배경 유지 */
         video {
             background-color: #1a202c; /* gray-900 */
@@ -53,7 +53,7 @@
 
     <!-- 전체 컨테이너 -->
     <div class="w-full max-w-lg bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8 relative overflow-hidden">
-        
+
         <!-- 1. 홈 뷰: 시작 화면 -->
         <div id="home-view" class="view w-full">
             <h1 class="text-3xl font-bold text-center mb-2 text-indigo-400">P2P 영상 채팅</h1>
@@ -82,10 +82,10 @@
                     </svg>
                     <span>ID 발급 중...</span>
                 </div>
-                <input 
-                    type="text" 
-                    id="my-peer-id" 
-                    readonly 
+                <input
+                    type="text"
+                    id="my-peer-id"
+                    readonly
                     class="hidden w-full bg-gray-900 text-white text-center font-mono text-lg rounded-md p-2 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     placeholder="ID를 불러오는 중..."
                 >
@@ -106,10 +106,10 @@
             <div class="space-y-4">
                 <div>
                     <label for="host-peer-id" class="block text-sm font-medium text-gray-300 mb-2">연결할 호스트 Peer ID</label>
-                    <input 
-                        type="text" 
-                        id="host-peer-id" 
-                        class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                    <input
+                        type="text"
+                        id="host-peer-id"
+                        class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         placeholder="상대방의 ID를 입력하세요"
                     >
                 </div>
@@ -134,7 +134,7 @@
                     연결 끊기
                 </button>
             </div>
-            
+
             <!-- 비디오 영역 -->
             <div class="grid grid-cols-2 gap-2 mb-4">
                 <div>
@@ -154,10 +154,10 @@
 
             <!-- 메시지 입력 영역 -->
             <form id="send-form" class="flex space-x-2">
-                <input 
-                    type="text" 
-                    id="message-input" 
-                    class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                <input
+                    type="text"
+                    id="message-input"
+                    class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     placeholder="메시지 입력..."
                     autocomplete="off"
                 >
@@ -168,11 +168,12 @@
         </div>
     </div>
 
-    <script type="module">
+    <script>
         // (신규) Supabase 클라이언트 초기화
         const supabaseUrl = 'https://upczrspilotvyhwqjprz.supabase.co';
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwY3pyc3BpbG90dnlod3FqcHJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MDg3NTIsImV4cCI6MjA3ODE4NDc1Mn0.P1Kfz8qZmef6VP2xyhwjrLq11Vulfn_-GDvl_7NjQYg';
-        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+        // (수정) 변수명 변경: supabase -> supabaseClient
+        const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
         console.log('Supabase client initialized.');
 
         // --- 뷰(View) DOM 요소 ---
@@ -214,7 +215,7 @@
         let dataConnection = null;
         let mediaConnection = null;
         let localStream = null;
-        
+
         // (신규) Supabase 연동을 위한 ID 관리
         let myPeerId = null; // 내 Peer ID
         let currentChatId = null; // 현재 채팅방 ID (호스트의 Peer ID로 통일)
@@ -226,7 +227,7 @@
             allViews.forEach(view => {
                 if (view === viewToShow) {
                     view.classList.remove('hidden');
-                    void view.offsetWidth; 
+                    void view.offsetWidth;
                     view.classList.remove('opacity-0', 'scale-95', 'absolute');
                 } else {
                     view.classList.add('opacity-0', 'scale-95', 'absolute');
@@ -256,7 +257,7 @@
 
         /**
          * (발신자) 미디어 콜 이벤트 설정
-         * @param {Peer.MediaConnection} call 
+         * @param {Peer.MediaConnection} call
          */
         function setupMediaConnection(call) {
             if (mediaConnection) {
@@ -287,20 +288,21 @@
          * @param {string} message - 저장할 메시지 내용
          */
         async function saveMessageToSupabase(message) {
-            if (!supabase || !currentChatId || !myPeerId) {
+            // (수정) supabase -> supabaseClient
+            if (!supabaseClient || !currentChatId || !myPeerId) {
                 console.warn('Supabase client, chat ID or Peer ID not ready. Message not saved.');
                 return;
             }
-            
+
             // chatlog 테이블에 'sender_id' 컬럼이 반드시 있어야 함
             const logData = {
                 chat_id: currentChatId,
                 message: message,
                 send_time: new Date().toISOString(),
-                sender_id: myPeerId 
+                sender_id: myPeerId
             };
 
-            const { error } = await supabase
+            const { error } = await supabaseClient // (수정)
                 .from('chatlog')
                 .insert(logData);
 
@@ -316,19 +318,21 @@
          * (신규) Supabase에서 이전 채팅 기록 불러오기
          */
         async function loadChatHistory() {
-            if (!supabase || !currentChatId || !myPeerId) {
+            // (수정) supabase -> supabaseClient
+            if (!supabaseClient || !currentChatId || !myPeerId) {
                 console.warn('Supabase/ID 준비 안됨. 기록 로드 스킵.');
                 return;
             }
-            
+
             displayMessage('System', '이전 대화 기록을 불러오는 중...');
-            
+
             // chatlog 테이블에 chat_id, message, send_time, sender_id 컬럼이 존재한다고 가정
-            const { data, error } = await supabase
+            // (수정) 잘린 부분 복원
+            const { data, error } = await supabaseClient
                 .from('chatlog')
                 .select('message, send_time, sender_id')
                 .eq('chat_id', currentChatId);
-                // .order('send_time', { ascending: true }); // JS에서 정렬
+                // .order('send_time', { ascending: true }); // JS에서 정렬 (인덱스 문제 회피)
 
             if (error) {
                 console.error('채팅 기록 불러오기 실패:', error);
@@ -354,7 +358,7 @@
          * PeerJS 객체 초기화 및 이벤트 핸들러 설정
          */
         function initializePeer(role) {
-            cleanupPeer(); 
+            cleanupPeer();
             peer = new Peer(undefined, {
                 // host: 'localhost', port: 9000, path: '/myapp' // 필요시 커스텀 서버 설정
             });
@@ -388,7 +392,7 @@
                         conn.close();
                         return;
                     }
-                    setupConnection(conn, 'host'); 
+                    setupConnection(conn, 'host');
                 });
             }
 
@@ -465,17 +469,17 @@
          */
         function setupConnection(conn, role) { // 'role' 추가
             dataConnection = conn;
-            
-            conn.on('open', async () => { 
+
+            conn.on('open', async () => {
                 console.log('데이터 연결 성공:', conn.peer);
                 showChatView(conn.peer); // 채팅방 UI 먼저 표시
 
                 // (신규) 채팅 기록 불러오기
-                await loadChatHistory(); 
+                await loadChatHistory();
 
                 // 미디어 스트림 가져오기 시도
                 try {
-                    await getMediaStream(); 
+                    await getMediaStream();
                 } catch (err) {
                     console.error('미디어 스트림 가져오기 실패:', err);
                     displayMessage('System', '웹캠/마이크를 시작할 수 없습니다. 텍스트 채팅만 활성화됩니다.');
@@ -530,7 +534,7 @@
                 textElement.textContent = message;
                 messageElement.appendChild(textElement);
             }
-            
+
             chatMessages.appendChild(messageElement);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -545,10 +549,10 @@
             hostPeerIdInput.value = ''; // 참여자 뷰 입력 필드 초기화
             joinerStatus.textContent = ''; // 참여자 뷰 상태 메시지 초기화
             chatMessages.innerHTML = ''; // 채팅 기록 초기화
-            
+
             displayMessage('System', `${peerId}님과 연결되었습니다.`);
         }
-        
+
         /**
          * 홈 뷰로 전환 (모든 연결 종료)
          * @param {string} [message] - 홈 뷰에 표시할 상태 메시지
@@ -564,7 +568,7 @@
             copyIdButton.classList.add('hidden');
             peerIdLoading.classList.remove('hidden');
             hostStatus.textContent = '';
-            
+
             // (신규) ID 변수 초기화
             myPeerId = null;
             currentChatId = null;
@@ -642,7 +646,7 @@
                 tempInput.select();
                 document.execCommand('copy');
                 document.body.removeChild(tempInput);
-                
+
                 const originalText = copyIdButton.textContent;
                 copyIdButton.textContent = '복사 완료!';
                 copyIdButton.classList.add('bg-green-600');
@@ -686,7 +690,7 @@
                 joinerStatus.classList.add('text-red-400');
                 return;
             }
-            
+
             currentChatId = hostId; // (신규) 참여자도 채팅방 ID 설정
             const conn = peer.connect(hostId);
             setupConnection(conn, 'joiner');
@@ -696,14 +700,14 @@
         sendForm.addEventListener('submit', (e) => {
             e.preventDefault();
             const message = messageInput.value.trim();
-            
+
             if (message && dataConnection && dataConnection.open) {
                 dataConnection.send(message);
                 displayMessage('You', message);
-                
+
                 // (신규) 보낸 메시지를 Supabase에 저장
-                saveMessageToSupabase(message); 
-                
+                saveMessageToSupabase(message);
+
                 messageInput.value = '';
             }
         });
